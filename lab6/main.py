@@ -1,4 +1,5 @@
 import hashlib
+import os
 
 class AVLNode:
     def __init__(self, key, value):
@@ -153,9 +154,7 @@ class HashTable:
         index = self._hash(key)
         result = self.table[index].search(key)
         print(f"Поиск '{key}' в Cell {index + 1}: {'найден' if result else 'не найден'}")
-        if result:
-            print(f"Значение: {result}")  # Явный вывод значения при успешном поиске
-        return result
+        return result  # Just return the result without printing it here
     
     def delete(self, key):
         index = self._hash(key)
@@ -171,6 +170,52 @@ class HashTable:
             print(f"Cell {i + 1}: ", end="")
             tree.display()
         print()
+    
+    def save_to_file(self, filename):
+        """Сохраняет хеш-таблицу в JSON файл"""
+        import json  # Importing JSON module to save the file
+        with open(filename, 'w', encoding='utf-8') as f:
+            data = {
+                'size': self.size,
+                'items': self.get_all_items()
+            }
+            json.dump(data, f, ensure_ascii=False, indent=4)
+        print(f"Хеш-таблица сохранена в файл '{filename}'")
+    
+    def load_from_file(self, filename):
+        """Загружает хеш-таблицу из файла формата JSON"""
+        if not os.path.exists(filename):
+            print(f"Файл '{filename}' не существует")
+            return False
+        
+        try:
+            import json  # Importing JSON module to read the file
+            
+            with open(filename, 'r', encoding='utf-8') as f:
+                data = json.load(f)  # Load data as a dictionary
+                self.size = data['size']
+                self.table = [AVLTree() for _ in range(self.size)]
+
+                for key, value in data['items']:
+                    self.insert(key, value)
+            print(f"Хеш-таблица загружена из файла '{filename}'")
+            return True
+        except Exception as e:
+            print(f"Ошибка при загрузке файла: {e}")
+            return False
+    
+    def get_all_items(self):
+        """Возвращает список всех пар ключ-значение в таблице"""
+        items = []
+        for tree in self.table:
+            items.extend(self._get_tree_items(tree.root))
+        return items
+    
+    def _get_tree_items(self, node):
+        """Рекурсивно собирает все элементы из AVL-дерева"""
+        if not node:
+            return []
+        return self._get_tree_items(node.left) + [(node.key, node.value)] + self._get_tree_items(node.right)
 
 def interactive_menu():
     print("\nМеню управления хеш-таблицей:")
@@ -179,7 +224,9 @@ def interactive_menu():
     print("3. Удалить элемент")
     print("4. Показать всю таблицу")
     print("5. Изменить размер таблицы")
-    print("6. Выход")
+    print("6. Сохранить таблицу в файл")
+    print("7. Загрузить таблицу из файла")
+    print("8. Выход")
 
 def main():
     while True:
@@ -192,7 +239,7 @@ def main():
     
     while True:
         interactive_menu()
-        choice = input("Выберите действие (1-6): ")
+        choice = input("Выберите действие (1-8): ")
         
         if choice == "1":
             key = input("Введите ключ: ")
@@ -215,17 +262,29 @@ def main():
         elif choice == "5":
             try:
                 new_size = int(input("Введите новый размер таблицы: "))
-                ht = HashTable(new_size)
+                # Создаем новую таблицу и переносим все элементы
+                new_ht = HashTable(new_size)
+                for key, value in ht.get_all_items():
+                    new_ht.insert(key, value)
+                ht = new_ht
                 print(f"Таблица изменена на размер {new_size}")
             except ValueError:
                 print("Некорректный размер таблицы, попробуйте снова")
         
         elif choice == "6":
+            filename = input("Введите имя файла для сохранения: ")
+            ht.save_to_file(filename)
+        
+        elif choice == "7":
+            filename = input("Введите имя файла для загрузки: ")
+            ht.load_from_file(filename)
+        
+        elif choice == "8":
             print("Выход из программы")
             break
         
         else:
-            print("Неверный ввод, попробуйте снова")
+            print("Неверный ввод, попробуйте снова")    
 
 if __name__ == "__main__":
     main()
