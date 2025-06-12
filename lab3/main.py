@@ -79,18 +79,18 @@ def run():
         for line in step:
             print("    ", line)
 
-    # Табличная минимизация (Карно)
-    dnf_karnaugh, kmap_dnf_steps = BooleanMinimizer.minimize_karnaugh(dnf_indices, len(variables))
-    cnf_karnaugh, kmap_cnf_steps = BooleanMinimizer.minimize_karnaugh(cnf_indices, len(variables), dnf=False)
+       # Табличная минимизация (Карно)
+    minimized_dnf, kmap_dnf_steps = BooleanMinimizer.minimize_karnaugh(dnf_indices, len(variables))
+    minimized_cnf, kmap_cnf_steps = BooleanMinimizer.minimize_karnaugh(cnf_indices, len(variables), dnf=False)
 
     print("\nМинимизация (табличная, Карно):")
-    print("Минимизированная DNF:", dnf_karnaugh)
+    print("Минимизированная DNF:", dnf_min)
     for i, step in enumerate(kmap_dnf_steps, 1):
         print(f"  Этап {i}:")
         for line in step:
             print("   ", line)
 
-    print("\nМинимизированная CNF:", cnf_karnaugh)
+    print("Минимизированная CNF:", cnf_min)
     for i, step in enumerate(kmap_cnf_steps, 1):
         print(f"  Этап {i}:")
         for line in step:

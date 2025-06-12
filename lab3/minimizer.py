@@ -1,4 +1,6 @@
 from typing import List, Tuple, Set
+from itertools import combinations
+from collections import defaultdict
 
 class BinaryUtils:
     @staticmethod
@@ -106,20 +108,26 @@ class ExpressionFormatter:
     def to_logical(pattern: str, vars: List[str], conjunctive: bool) -> str:
         if all(bit == '-' for bit in pattern):
             return "1" if conjunctive else "0"
+
         parts = []
         for i, bit in enumerate(pattern):
             if bit == '-':
                 continue
             term = vars[i]
-            if (bit == '1' and conjunctive) or (bit == '0' and not conjunctive):
-                parts.append(term)
+            if conjunctive:
+                # DNF: 1 → var, 0 → !var
+                parts.append(term if bit == '1' else f"!{term}")
             else:
-                parts.append(f"!{term}")
+                # CNF: 0 → var, 1 → !var
+                parts.append(term if bit == '0' else f"!{term}")
+
         glue = ' & ' if conjunctive else ' | '
         expr = glue.join(parts) if parts else ("1" if conjunctive else "0")
-        if conjunctive and len(parts) == 1:
-            expr = f"({expr})"
+
         return expr
+
+
+
 
 class BooleanMinimizer:
     @staticmethod
@@ -188,11 +196,11 @@ class BooleanMinimizer:
         return result, steps
 
     @staticmethod
-    def minimize_karnaugh(minterms: List[int], var_count: int, dnf: bool = True) -> Tuple[str, List[List[str]]]:
+    def minimize_karnaugh(indices: List[int], var_count: int, dnf: bool = True) -> Tuple[str, List[List[str]]]:
         def gray_code(n):
             return [i ^ (i >> 1) for i in range(1 << n)]
 
-        if not minterms:
+        if not indices:
             return ("Contradiction" if dnf else "Tautology", [["Карта Карно:"], ["0 0 0 0", "0 0 0 0"], ["Группы не найдены"]])
 
         rows = 1 << (var_count // 2)
@@ -202,102 +210,54 @@ class BooleanMinimizer:
         col_gray = [format(g, f'0{(var_count+1)//2}b') for g in gray_code((var_count+1)//2)]
 
         cell_to_bits = {}
+        bit_index_map = {}
         for i in range(rows):
             for j in range(cols):
                 bits = (row_gray[i] + col_gray[j])[:var_count]
                 index = int(bits, 2)
-                if index in minterms:
-                    grid[i][j] = 1
                 cell_to_bits[(i, j)] = bits
+                bit_index_map[index] = bits
+                if index in indices:
+                    grid[i][j] = 1
 
-        def find_groups(grid, rows, cols, cell_to_bits):
-            groups = []
-            used_cells = set()
-            
-            def is_valid_group(cells):
-                return all(0 <= i < rows and 0 <= j < cols and grid[i][j] == 1 and (i, j) not in used_cells for i, j in cells)
-            
-            def add_group(cells):
-                if cells:
-                    groups.append(set(cells))
-                    used_cells.update(cells)
-            
-            for size in [4, 2, 1]:
-                for i in range(rows):
-                    for j in range(cols):
-                        if j + size <= cols and is_valid_group([(i, j + k) for k in range(size)]):
-                            add_group([(i, j + k) for k in range(size)])
-                        if size != 1 and i + size <= rows and is_valid_group([(i + k, j) for k in range(size)]):
-                            add_group([(i + k, j) for k in range(size)])
-                        if size == 2 and i + size <= rows and j + size <= cols:
-                            if is_valid_group([(i + di, j + dj) for di in range(size) for dj in range(size)]):
-                                add_group([(i + di, j + dj) for di in range(size) for dj in range(size)])
-            
-            if cols == 4:
-                for i in range(rows):
-                    if is_valid_group([(i, 0), (i, cols-1)]):
-                        add_group([(i, 0), (i, cols-1)])
-            if rows == 4:
-                for j in range(cols):
-                    if is_valid_group([(0, j), (rows-1, j)]):
-                        add_group([(0, j), (rows-1, j)])
-            
-            return groups
+        steps = [["Карта Карно:"]]
+        steps.append([" ".join(map(str, row)) for row in grid])
 
-        steps = []
-        steps.append(["Карта Карно:"])
-        grid_str = [" ".join(map(str, row)) for row in grid]
-        steps.append(grid_str)
-        
-        groups = find_groups(grid, rows, cols, cell_to_bits)
-        
-        if groups:
-            group_descriptions = []
-            for idx, group in enumerate(groups, 1):
-                rows_in_group = sorted({i for i, j in group})
-                cols_in_group = sorted({j for i, j in group})
-                desc = f"Group {idx}: rows {rows_in_group[0]}-{rows_in_group[-1]}, columns {cols_in_group[0]}-{cols_in_group[-1]}"
-                group_descriptions.append(desc)
-            steps.append(["Identified groups:"] + group_descriptions)
-        else:
-            steps.append(["Группы не найдены"])
+        # Группировка по переменным: если переменная одинаково во всех индексах
+        var_values = defaultdict(set)
+        for index in indices:
+            bits = bit_index_map[index]
+            for i, bit in enumerate(bits):
+                var_values[i].add(bit)
 
-        targets = set(minterms)
-        covers = {t: [] for t in targets}
-        group_minterms = []
-        for idx, group in enumerate(groups):
-            minterms = {int(cell_to_bits[cell], 2) for cell in group}
-            group_minterms.append((group, minterms))
-            for m in minterms:
-                if m in targets:
-                    covers[m].append((idx, group, minterms))
-        
-        essentials = []
-        remaining = set(targets)
-        while remaining:
-            best = max((g for g, mt in group_minterms if g not in [e[1] for e in essentials]), 
-                       key=lambda g: len({int(cell_to_bits[cell], 2) for cell in g} & remaining), 
-                       default=None)
-            if not best:
+        global_groups = []
+        for i, values in var_values.items():
+            if len(values) == 1:
+                pattern = ['-' for _ in range(var_count)]
+                pattern[i] = values.pop()
+                global_groups.append(("".join(pattern), set(filter(lambda idx: bit_index_map[idx][i] == pattern[i], indices))))
+
+        # Если осталось что-то непокрытое — добавляем явно
+        covered = set()
+        for _, group_indices in global_groups:
+            covered |= group_indices
+        for idx in indices:
+            if idx not in covered:
+                global_groups.append((bit_index_map[idx], {idx}))
+
+        # Минимальное покрытие
+        targets = set(indices)
+        best_cover = None
+        for r in range(1, len(global_groups)+1):
+            for combo in combinations(global_groups, r):
+                covered_now = set().union(*(g[1] for g in combo))
+                if covered_now == targets:
+                    if best_cover is None or sum(p.count('0') + p.count('1') for p, _ in combo) < sum(p.count('0') + p.count('1') for p, _ in best_cover):
+                        best_cover = combo
+            if best_cover:
                 break
-            minterms = {int(cell_to_bits[cell], 2) for cell in best}
-            essentials.append((len(essentials) + 1, best, minterms))
-            remaining -= minterms
-        
+
         variables = [chr(97 + i) for i in range(var_count)]
-        expressions = []
-        for _, group, minterms in essentials:
-            bits_list = [cell_to_bits[cell] for cell in group]
-            common_bits = list(bits_list[0])
-            for bits in bits_list[1:]:
-                for i in range(var_count):
-                    if common_bits[i] != bits[i]:
-                        common_bits[i] = '-'
-            expr = ExpressionFormatter.to_logical(''.join(common_bits), variables, dnf)
-            if expr and expr != "1" and expr != "0":
-                expressions.append(expr)
-        
-        minimized_expr = " | ".join(f"({expr})" for expr in expressions) if dnf else " & ".join(f"({expr})" for expr in expressions)
-        minimized_expr = minimized_expr if expressions else ("Contradiction" if dnf else "Tautology")
-        
-        return minimized_expr, steps
+        expressions = [ExpressionFormatter.to_logical(p, variables, dnf) for p, _ in best_cover] if best_cover else []
+        minimized_expr = " | ".join(f"({e})" for e in expressions) if dnf else " & ".join(f"({e})" for e in expressions)
+        return minimized_expr if expressions else ("Contradiction" if dnf else "Tautology"), steps
